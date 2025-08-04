@@ -74,7 +74,7 @@
   <h1>📐 Activity-on-Node Diagram</h1>
 
   <div id="taskInputs"></div>
-  <button onclick="addTaskInput()">➕ Add Task</button>
+  <button onclick="addTaskInput()">➕ Add New Task</button>
   <button onclick="generateTasks()">📊 Generate</button>
   <button onclick="downloadJSON()">🧩 JSON</button>
   <button onclick="downloadPDF()">📄 PDF</button>
@@ -163,7 +163,7 @@
       tasks.reverse();
     }
 
-    function drawDiagram() {
+function drawDiagram() {
   const svg = document.querySelector("svg");
   svg.innerHTML = `
     <defs>
@@ -175,31 +175,65 @@
 
   const nodeWidth = 120;
   const nodeHeight = 80;
-  const spacingX = 180;
-  const spacingY = 150;
-  const startX = 50;
-  const startY = 50;
+  const spacingX = 220;
+  const spacingY = 160;
+  const canvasWidth = 1000;
+  const canvasHeight = 600;
 
-  const taskMap = {};
-  tasks.forEach((task, index) => {
-    const x = startX + (index % 4) * spacingX;
-    const y = startY + Math.floor(index / 4) * spacingY;
-    taskMap[task.id] = { x, y };
+  const levels = {};
+  const taskMap = Object.fromEntries(tasks.map(t => [t.id, t]));
 
-    svg.innerHTML += `
-      <rect x="${x}" y="${y}" width="${nodeWidth}" height="${nodeHeight}" 
-            rx="12" ry="12" fill="#2a2a2a" stroke="#ffc107" stroke-width="2"/>
-      <text x="${x + 10}" y="${y + 20}" font-size="12">ID: ${task.id}</text>
-      <text x="${x + 10}" y="${y + 35}" font-size="12">ET: ${task.ET}</text>
-      <text x="${x + 10}" y="${y + 50}" font-size="12">EF: ${task.EF}</text>
-      <text x="${x + 10}" y="${y + 65}" font-size="12">LF: ${task.LF}</text>
-    `;
+  function assignLevel(taskId, visited = new Set()) {
+    if (levels[taskId] !== undefined) return levels[taskId];
+    if (visited.has(taskId)) return 0;
+
+    visited.add(taskId);
+    const task = taskMap[taskId];
+    if (!task) return 0;
+
+    let level = 0;
+    task.dependencies.forEach(dep => {
+      level = Math.max(level, assignLevel(dep, visited) + 1);
+    });
+    levels[taskId] = level;
+    return level;
+  }
+
+  tasks.forEach(t => assignLevel(t.id));
+
+  const levelGroups = {};
+  tasks.forEach(t => {
+    const level = levels[t.id];
+    if (!levelGroups[level]) levelGroups[level] = [];
+    levelGroups[level].push(t);
+  });
+
+  const nodePositions = {};
+  Object.entries(levelGroups).forEach(([levelStr, group]) => {
+    const level = parseInt(levelStr);
+    const totalHeight = (group.length - 1) * spacingY;
+    const startY = (canvasHeight - totalHeight) / 2;
+
+    group.forEach((task, i) => {
+      const x = 50 + level * spacingX;
+      const y = startY + i * spacingY;
+      nodePositions[task.id] = { x, y };
+
+      svg.innerHTML += `
+        <rect x="${x}" y="${y}" width="${nodeWidth}" height="${nodeHeight}"
+              rx="12" ry="12" fill="#2a2a2a" stroke="#ffc107" stroke-width="2"/>
+        <text x="${x + 10}" y="${y + 20}" font-size="12">ID: ${task.id}</text>
+        <text x="${x + 10}" y="${y + 35}" font-size="12">ET: ${task.ET}</text>
+        <text x="${x + 10}" y="${y + 50}" font-size="12">EF: ${task.EF}</text>
+        <text x="${x + 10}" y="${y + 65}" font-size="12">LF: ${task.LF}</text>
+      `;
+    });
   });
 
   tasks.forEach(task => {
-    const from = taskMap[task.id];
+    const from = nodePositions[task.id];
     task.dependencies.forEach(depId => {
-      const to = taskMap[depId];
+      const to = nodePositions[depId];
       if (!from || !to) return;
 
       const startX = to.x + nodeWidth;
@@ -207,25 +241,30 @@
       const endX = from.x;
       const endY = from.y + nodeHeight / 2;
 
-      // Set height of curve above nodes
-      const curveHeight = 50; // Adjust this for curve height
+      const levelDiff = levels[task.id] - levels[depId];
 
-      // Control point for the quadratic Bézier curve (above nodes)
-      const controlX = (startX + endX) / 2;
-      const controlY = Math.min(startY, endY) - curveHeight;
+      if (levelDiff > 1) {
+        const controlX = (startX + endX) / 2;
+        const controlY = ((startY + endY) / 2) - 60;
 
-      const path = `
-        M ${startX} ${startY}
-        Q ${controlX} ${controlY} ${endX} ${endY}
-      `;
+        const path = `
+          M ${startX} ${startY}
+          Q ${controlX} ${controlY} ${endX} ${endY}
+        `;
 
-      svg.innerHTML += `
-        <path d="${path}" fill="none" stroke="#ffc107"
-              stroke-width="2" marker-end="url(#arrowhead)"/>
-      `;
+        svg.innerHTML += `
+          <path d="${path}" class="arrow" fill="none" />
+        `;
+      } else {
+        svg.innerHTML += `
+          <line x1="${startX}" y1="${startY}" x2="${endX}" y2="${endY}" class="arrow" />
+        `;
+      }
     });
   });
 }
+
+
 
 
 
