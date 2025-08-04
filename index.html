@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Task Network Visualizer</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    body.dark-mode {
+      background-color: #1a1a1a;
+      color: #fff;
+    }
+
+    button {
+      margin: 0.5rem;
+      padding: 0.5rem 1rem;
+      border: none;
+      background: #ffc107;
+      color: #000;
+      font-weight: bold;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: transform 0.2s ease;
+    }
+
+    button:hover {
+      transform: scale(1.05);
+    }
+
+    h1 {
+      color: #ffc107;
+      margin-top: 1rem;
+    }
+
+    .block {
+      border: 2px solid #ffc107;
+      background: #2a2a2a;
+      padding: 1rem;
+      margin: 1rem;
+      border-radius: 1rem;
+      text-align: center;
+      color: white;
+      box-shadow: 0 0 10px #ffc107;
+      transition: transform 0.3s ease;
+    }
+
+    .block:hover {
+      transform: scale(1.05);
+    }
+
+    svg text {
+      fill: white;
+    }
+
+    .arrow {
+      stroke: #ffc107;
+      stroke-width: 2;
+      marker-end: url(#arrowhead);
+    }
+
+    #diagram {
+      margin-top: 2rem;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <button onclick="toggleDarkMode()">🌙 Toggle Dark Mode</button>
+  <h1>📐 Activity-on-Node Diagram</h1>
+
+  <div id="taskInputs"></div>
+  <button onclick="addTaskInput()">➕ Add Task</button>
+  <button onclick="generateTasks()">📊 Generate</button>
+  <button onclick="downloadJSON()">🧩 JSON</button>
+  <button onclick="downloadPDF()">📄 PDF</button>
+
+  <pre id="output"></pre>
+
+  <div id="diagram">
+    <svg width="1000" height="600">
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+                refX="10" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#ffc107" />
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <script>
+    let tasks = [];
+
+    function toggleDarkMode() {
+      document.body.classList.toggle("dark-mode");
+    }
+
+    function addTaskInput() {
+      const div = document.createElement("div");
+      div.classList.add("task");
+      div.innerHTML = `
+        <input class="id" placeholder="Task ID" />
+        <input class="desc" placeholder="Description" />
+        <input class="et" placeholder="ET" type="number" />
+        <input class="deps" placeholder="Dependencies (comma separated)" />
+      `;
+      document.getElementById("taskInputs").appendChild(div);
+    }
+
+    function topologicalSort(tasks) {
+      const visited = new Set();
+      const result = [];
+      const temp = new Set();
+
+      const taskMap = Object.fromEntries(tasks.map(t => [t.id, t]));
+
+      function visit(n) {
+        if (temp.has(n)) throw new Error("Cycle detected");
+        if (!visited.has(n)) {
+          temp.add(n);
+          taskMap[n].dependencies.forEach(visit);
+          temp.delete(n);
+          visited.add(n);
+          result.push(taskMap[n]);
+        }
+      }
+
+      tasks.forEach(t => visit(t.id));
+      return result;
+    }
+
+    function calculateSchedule(tasks) {
+      const taskMap = {};
+      tasks.forEach(t => {
+        t.ES = 0;
+        t.EF = t.ET;
+        taskMap[t.id] = t;
+      });
+
+      tasks.forEach(t => {
+        t.dependencies.forEach(depId => {
+          const dep = taskMap[depId];
+          if (t.ES < dep.EF) {
+            t.ES = dep.EF;
+            t.EF = t.ES + t.ET;
+          }
+        });
+      });
+
+      const maxEF = Math.max(...tasks.map(t => t.EF));
+      tasks.reverse().forEach(t => {
+        if (!tasks.some(other => other.dependencies.includes(t.id))) {
+          t.LF = maxEF;
+        } else {
+          const children = tasks.filter(child => child.dependencies.includes(t.id));
+          t.LF = Math.min(...children.map(c => c.ES));
+        }
+      });
+      tasks.reverse();
+    }
+
+    function drawDiagram() {
+  const svg = document.querySelector("svg");
+  svg.innerHTML = `
+    <defs>
+      <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#ffc107" />
+      </marker>
+    </defs>
+  `;
+
+  const nodeWidth = 120;
+  const nodeHeight = 80;
+  const spacingX = 180;
+  const spacingY = 150;
+  const startX = 50;
+  const startY = 50;
+
+  const taskMap = {};
+  tasks.forEach((task, index) => {
+    const x = startX + (index % 4) * spacingX;
+    const y = startY + Math.floor(index / 4) * spacingY;
+    taskMap[task.id] = { x, y };
+
+    svg.innerHTML += `
+      <rect x="${x}" y="${y}" width="${nodeWidth}" height="${nodeHeight}" 
+            rx="12" ry="12" fill="#2a2a2a" stroke="#ffc107" stroke-width="2"/>
+      <text x="${x + 10}" y="${y + 20}" font-size="12">ID: ${task.id}</text>
+      <text x="${x + 10}" y="${y + 35}" font-size="12">ET: ${task.ET}</text>
+      <text x="${x + 10}" y="${y + 50}" font-size="12">EF: ${task.EF}</text>
+      <text x="${x + 10}" y="${y + 65}" font-size="12">LF: ${task.LF}</text>
+    `;
+  });
+
+  tasks.forEach(task => {
+    const from = taskMap[task.id];
+    task.dependencies.forEach(depId => {
+      const to = taskMap[depId];
+      if (!from || !to) return;
+
+      const startX = to.x + nodeWidth;
+      const startY = to.y + nodeHeight / 2;
+      const endX = from.x;
+      const endY = from.y + nodeHeight / 2;
+
+      // Set height of curve above nodes
+      const curveHeight = 50; // Adjust this for curve height
+
+      // Control point for the quadratic Bézier curve (above nodes)
+      const controlX = (startX + endX) / 2;
+      const controlY = Math.min(startY, endY) - curveHeight;
+
+      const path = `
+        M ${startX} ${startY}
+        Q ${controlX} ${controlY} ${endX} ${endY}
+      `;
+
+      svg.innerHTML += `
+        <path d="${path}" fill="none" stroke="#ffc107"
+              stroke-width="2" marker-end="url(#arrowhead)"/>
+      `;
+    });
+  });
+}
+
+
+
+    function generateTasks() {
+      tasks = [];
+      const taskDivs = document.querySelectorAll(".task");
+
+      taskDivs.forEach(div => {
+        const id = div.querySelector(".id").value;
+        const desc = div.querySelector(".desc").value;
+        const et = parseInt(div.querySelector(".et").value);
+        const deps = div.querySelector(".deps").value
+          .split(",")
+          .map(s => s.trim())
+          .filter(s => s !== "");
+        tasks.push({ id, description: desc, ET: et, dependencies: deps });
+      });
+
+      try {
+        tasks = topologicalSort(tasks);
+        calculateSchedule(tasks);
+        document.getElementById("output").textContent = JSON.stringify(tasks, null, 2);
+        drawDiagram();
+      } catch (err) {
+        alert("Error: " + err.message);
+      }
+    }
+
+    function downloadJSON() {
+      const blob = new Blob([JSON.stringify(tasks, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'tasks.json';
+      link.click();
+    }
+
+    function downloadPDF() {
+      alert("PDF export coming soon!");
+    }
+  </script>
+</body>
+</html>
