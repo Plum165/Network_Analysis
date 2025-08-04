@@ -2,18 +2,33 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Task Network Visualizer</title>
-  <link rel="stylesheet" href="style.css" />
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       font-family: 'Segoe UI', sans-serif;
       transition: background 0.3s ease, color 0.3s ease;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      background-color: #f0f0f0;
     }
 
     body.dark-mode {
       background-color: #1a1a1a;
       color: #fff;
+    }
+
+    .container {
+      max-width: 1200px;
+      width: 100%;
+      padding: 2rem;
+      text-align: center;
     }
 
     button {
@@ -41,7 +56,7 @@
       border: 2px solid #ffc107;
       background: #2a2a2a;
       padding: 1rem;
-      margin: 1rem;
+      margin: 1rem auto;
       border-radius: 1rem;
       text-align: center;
       color: white;
@@ -66,32 +81,45 @@
     #diagram {
       margin-top: 2rem;
       overflow-x: auto;
+      text-align: center;
+    }
+
+    .task {
+      margin: 0.5rem 0;
+    }
+
+    input {
+      padding: 0.4rem;
+      margin: 0.2rem;
+      border-radius: 5px;
+      border: 1px solid #ccc;
     }
   </style>
 </head>
 <body>
-  <button onclick="toggleDarkMode()">🌙 Toggle Dark Mode</button>
-  <h1>📐 Activity-on-Node Diagram</h1>
+  <div class="container">
+    <button onclick="toggleDarkMode()">🌙 Toggle Dark Mode</button>
+    <h1>📐 Activity-on-Node Diagram</h1>
 
-  <div id="taskInputs"></div>
-  <button onclick="addTaskInput()">➕ Add New Task</button>
-  <button onclick="generateTasks()">📊 Generate</button>
-  <button onclick="downloadJSON()">🧩 JSON</button>
-  <button onclick="downloadPDF()">📄 PDF</button>
+    <div id="taskInputs"></div>
+    <button onclick="addTaskInput()">➕ Add New Task</button>
+    <button onclick="generateTasks()">📊 Generate</button>
+    <button onclick="downloadJSON()">🧩 JSON</button>
+    <button onclick="downloadPDF()">📄 PDF</button>
 
-  <pre id="output"></pre>
+    <pre id="output"></pre>
 
-  <div id="diagram">
-    <svg width="1000" height="600">
-      <defs>
-        <marker id="arrowhead" markerWidth="10" markerHeight="7" 
-                refX="10" refY="3.5" orient="auto">
-          <polygon points="0 0, 10 3.5, 0 7" fill="#ffc107" />
-        </marker>
-      </defs>
-    </svg>
+    <div id="diagram">
+      <svg width="1200" height="800">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+                  refX="10" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#ffc107" />
+          </marker>
+        </defs>
+      </svg>
+    </div>
   </div>
-
   <script>
     let tasks = [];
 
@@ -133,35 +161,67 @@
       return result;
     }
 
-    function calculateSchedule(tasks) {
-      const taskMap = {};
-      tasks.forEach(t => {
-        t.ES = 0;
-        t.EF = t.ET;
-        taskMap[t.id] = t;
-      });
+  function calculateSchedule(tasks) {
+  // Initialize fields
+  tasks.forEach(task => {
+    task.ES = 0;
+    task.EF = 0;
+    task.LS = 0;
+    task.LF = 0;
+    task.TF = 0;
+    task.FF = 0;
+  });
 
-      tasks.forEach(t => {
-        t.dependencies.forEach(depId => {
-          const dep = taskMap[depId];
-          if (t.ES < dep.EF) {
-            t.ES = dep.EF;
-            t.EF = t.ES + t.ET;
-          }
-        });
-      });
-
-      const maxEF = Math.max(...tasks.map(t => t.EF));
-      tasks.reverse().forEach(t => {
-        if (!tasks.some(other => other.dependencies.includes(t.id))) {
-          t.LF = maxEF;
-        } else {
-          const children = tasks.filter(child => child.dependencies.includes(t.id));
-          t.LF = Math.min(...children.map(c => c.ES));
-        }
-      });
-      tasks.reverse();
+  // Earliest Start / Finish
+  for (let task of tasks) {
+    if (task.dependencies.length === 0) {
+      task.ES = 0;
+    } else {
+      let maxEF = 0;
+      for (let depId of task.dependencies) {
+        const dep = tasks.find(t => t.id === depId);
+        if (dep && dep.EF > maxEF) maxEF = dep.EF;
+      }
+      task.ES = maxEF;
     }
+    task.EF = task.ES + task.ET;
+  }
+
+  // Latest Start / Finish
+  let maxEF = Math.max(...tasks.map(t => t.EF));
+  for (let task of tasks) {
+    const isFinal = !tasks.some(t => t.dependencies.includes(task.id));
+    if (isFinal) {
+      task.LF = maxEF;
+      task.LS = task.LF - task.ET;
+    }
+  }
+
+  for (let i = tasks.length - 1; i >= 0; i--) {
+    const task = tasks[i];
+    const dependents = tasks.filter(t => t.dependencies.includes(task.id));
+    if (dependents.length > 0) {
+      task.LF = Math.min(...dependents.map(d => d.LS));
+      task.LS = task.LF - task.ET;
+    }
+  }
+
+  // Total Float
+  for (let task of tasks) {
+    task.TF = task.LS - task.ES;
+  }
+
+  // Free Float
+  for (let task of tasks) {
+    const dependents = tasks.filter(t => t.dependencies.includes(task.id));
+    if (dependents.length > 0) {
+      const minES = Math.min(...dependents.map(d => d.ES));
+      task.FF = minES - task.EF;
+    } else {
+      task.FF = task.TF;
+    }
+  }
+}
 
 function drawDiagram() {
   const svg = document.querySelector("svg");
@@ -173,8 +233,8 @@ function drawDiagram() {
     </defs>
   `;
 
-  const nodeWidth = 120;
-  const nodeHeight = 80;
+  const nodeWidth = 130;
+  const nodeHeight = 100;
   const spacingX = 220;
   const spacingY = 160;
   const canvasWidth = 1000;
@@ -224,8 +284,12 @@ function drawDiagram() {
               rx="12" ry="12" fill="#2a2a2a" stroke="#ffc107" stroke-width="2"/>
         <text x="${x + 10}" y="${y + 20}" font-size="12">ID: ${task.id}</text>
         <text x="${x + 10}" y="${y + 35}" font-size="12">ET: ${task.ET}</text>
-        <text x="${x + 10}" y="${y + 50}" font-size="12">EF: ${task.EF}</text>
-        <text x="${x + 10}" y="${y + 65}" font-size="12">LF: ${task.LF}</text>
+        <text x="${x + 10}" y="${y + 55}" font-size="12">ES: ${task.ES}</text>
+        <text x="${x + 10}" y="${y + 75}" font-size="12">EF: ${task.EF}</text>
+        <text x="${x + 50}" y="${y + 35}" font-size="12">LS: ${task.LS}</text>
+        <text x="${x + 50}" y="${y + 55}" font-size="12">LF: ${task.LF}</text>
+        <text x="${x + 50}" y="${y + 75}" font-size="12">TF: ${task.TF}</text>
+        <text x="${x + 20}" y="${y + 90}" font-size="12">FF: ${task.FF}</text>
       `;
     });
   });
@@ -286,7 +350,7 @@ function drawDiagram() {
       try {
         tasks = topologicalSort(tasks);
         calculateSchedule(tasks);
-        document.getElementById("output").textContent = JSON.stringify(tasks, null, 2);
+       // document.getElementById("output").textContent = JSON.stringify(tasks, null, 2);
         drawDiagram();
       } catch (err) {
         alert("Error: " + err.message);
@@ -304,6 +368,8 @@ function drawDiagram() {
     function downloadPDF() {
       alert("PDF export coming soon!");
     }
+    
   </script>
+  
 </body>
 </html>

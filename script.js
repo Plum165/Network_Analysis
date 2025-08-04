@@ -1,5 +1,6 @@
 let taskCount = 0;
 let tasks = [];
+window.calculateSchedule = calculateSchedule;
 function topologicalSort(tasks) {
   const visited = new Set();
   const sorted = [];
